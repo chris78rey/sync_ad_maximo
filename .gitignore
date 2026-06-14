@@ -1,0 +1,15 @@
+target/
+out/
+graphify-out/
+
+*.class
+*.log
+*.tmp
+*.bak
+*.swp
+
+.idea/
+*.iml
+
+.DS_Store
+Thumbs.db
