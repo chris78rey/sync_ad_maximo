@@ -29,6 +29,10 @@ public class DailyReportEmailService {
         }
     }
 
+    public void resendExecutionSummary(SyncExecution execution, SyncResult result) {
+        sendExecutionSummary(execution, new SynchronizationPlan(), result);
+    }
+
     public String buildMailBody(SyncExecution execution, SynchronizationPlan plan, SyncResult result) {
         StringBuilder body = new StringBuilder();
         body.append("RunId: ").append(execution == null ? "-" : execution.getRunId()).append('\n');

@@ -77,6 +77,15 @@
     </servlet-mapping>
 
     <servlet>
+        <servlet-name>reportController</servlet-name>
+        <servlet-class>com.syncadmaximo.web.servlet.ReportController</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>reportController</servlet-name>
+        <url-pattern>/api/reportes/*</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
         <servlet-name>mailPreviewServlet</servlet-name>
         <servlet-class>com.syncadmaximo.web.servlet.MailPreviewServlet</servlet-class>
     </servlet>
