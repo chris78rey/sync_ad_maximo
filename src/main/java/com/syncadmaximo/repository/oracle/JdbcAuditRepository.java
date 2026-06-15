@@ -4,6 +4,7 @@ import com.syncadmaximo.audit.AccessAuditRecord;
 import com.syncadmaximo.audit.AuditRecord;
 import com.syncadmaximo.audit.MailAuditRecord;
 import com.syncadmaximo.audit.RunRecord;
+import com.syncadmaximo.audit.ExecutionAuditDao;
 import com.syncadmaximo.repository.AuditRepository;
 import com.syncadmaximo.sql.OracleSql;
 
@@ -15,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-public class JdbcAuditRepository implements AuditRepository {
+public class JdbcAuditRepository implements AuditRepository, ExecutionAuditDao {
     private final OracleConnectionFactory connectionFactory;
 
     public JdbcAuditRepository(OracleConnectionFactory connectionFactory) {

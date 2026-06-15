@@ -5,6 +5,7 @@ import com.syncadmaximo.model.SyncExecution;
 import com.syncadmaximo.model.SyncResult;
 import com.syncadmaximo.service.DailyReportEmailService;
 import com.syncadmaximo.service.ReportService;
+import com.syncadmaximo.service.RunHistoryService;
 import com.syncadmaximo.web.WebRequestContext;
 import com.syncadmaximo.web.report.ExecutionPresentationModel;
 import com.syncadmaximo.web.report.PresentationRequestResolver;
@@ -24,11 +25,13 @@ public class ReportController extends HttpServlet {
 
     private final ReportService reportService = new ReportService(AppConfig.getInstance().getZoneId());
     private final DailyReportEmailService dailyReportEmailService = new DailyReportEmailService(null);
+    private final RunHistoryService runHistoryService = new RunHistoryService(AppConfig.getInstance());
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
-        SyncExecution execution = PresentationRequestResolver.resolveExecution(request);
-        SyncResult result = PresentationRequestResolver.resolveResult(request);
+        HistoricalData data = resolveData(request);
+        SyncExecution execution = data.execution;
+        SyncResult result = data.result;
         if (execution == null || result == null) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND, "No existe una ejecución disponible en la sesión.");
             return;
@@ -63,8 +66,9 @@ public class ReportController extends HttpServlet {
             return;
         }
 
-        SyncExecution execution = WebRequestContext.resolveExecution(request);
-        SyncResult result = WebRequestContext.resolveResult(request);
+        HistoricalData data = resolveData(request);
+        SyncExecution execution = data.execution;
+        SyncResult result = data.result;
         if (execution == null || result == null) {
             response.sendError(HttpServletResponse.SC_NOT_FOUND, "No existe una ejecución disponible en la sesión.");
             return;
@@ -86,5 +90,26 @@ public class ReportController extends HttpServlet {
             return true;
         }
         return pathInfo != null && pathInfo.toLowerCase().endsWith("/csv");
+    }
+
+    private HistoricalData resolveData(HttpServletRequest request) {
+        String runId = request.getParameter("runId");
+        if (runId != null && !runId.trim().isEmpty()) {
+            java.util.Optional<RunHistoryService.HistoricalExecution> historical = runHistoryService.findExecutionByRunId(runId);
+            if (historical.isPresent()) {
+                return new HistoricalData(historical.get().getExecution(), historical.get().getResult());
+            }
+        }
+        return new HistoricalData(PresentationRequestResolver.resolveExecution(request), PresentationRequestResolver.resolveResult(request));
+    }
+
+    private static final class HistoricalData {
+        private final SyncExecution execution;
+        private final SyncResult result;
+
+        private HistoricalData(SyncExecution execution, SyncResult result) {
+            this.execution = execution;
+            this.result = result;
+        }
     }
 }
