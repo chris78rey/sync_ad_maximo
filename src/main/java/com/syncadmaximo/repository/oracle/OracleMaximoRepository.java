@@ -136,6 +136,13 @@ public class OracleMaximoRepository implements MaximoRepository {
     }
 
     @Override
+    public void insertConfiguredPrimaryEmail(String personId, String emailAddress) throws SQLException {
+        try (Connection connection = connectionFactory.openConnection()) {
+            insertConfiguredPrimaryEmail(connection, personId, emailAddress);
+        }
+    }
+
+    @Override
     public long nextSequenceValue(String sequenceName) throws SQLException {
         try (Connection connection = connectionFactory.openConnection()) {
             return nextSequenceValue(connection, sequenceName);

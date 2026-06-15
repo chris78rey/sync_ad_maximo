@@ -22,6 +22,9 @@ public final class SynchronizationPlan {
     private int matchedByEmail;
     private int created;
     private int updated;
+    private int inactivated;
+    private int emailUpdated;
+    private int emailInserted;
     private int unchanged;
     private int skipped;
     private int failed;
@@ -116,6 +119,30 @@ public final class SynchronizationPlan {
         this.updated++;
     }
 
+    public int getInactivated() {
+        return inactivated;
+    }
+
+    public void incrementInactivated() {
+        this.inactivated++;
+    }
+
+    public int getEmailUpdated() {
+        return emailUpdated;
+    }
+
+    public void incrementEmailUpdated() {
+        this.emailUpdated++;
+    }
+
+    public int getEmailInserted() {
+        return emailInserted;
+    }
+
+    public void incrementEmailInserted() {
+        this.emailInserted++;
+    }
+
     public int getUnchanged() {
         return unchanged;
     }
@@ -152,6 +179,9 @@ public final class SynchronizationPlan {
                 .append(", matchCorreo=").append(matchedByEmail)
                 .append(", creados=").append(created)
                 .append(", actualizados=").append(updated)
+                .append(", inactivados=").append(inactivated)
+                .append(", emailActualizados=").append(emailUpdated)
+                .append(", emailInsertados=").append(emailInserted)
                 .append(", sinCambios=").append(unchanged)
                 .append(", omitidos=").append(skipped)
                 .append(", fallidos=").append(failed)

@@ -7,7 +7,11 @@ import com.syncadmaximo.model.SyncExecution;
 import com.syncadmaximo.model.SyncIssue;
 import com.syncadmaximo.model.SyncResult;
 import com.syncadmaximo.service.AuditRepository;
+import com.syncadmaximo.service.CreationService;
+import com.syncadmaximo.service.DailyReportEmailService;
 import com.syncadmaximo.service.DirectoryService;
+import com.syncadmaximo.service.EmailSyncService;
+import com.syncadmaximo.service.InactivationService;
 import com.syncadmaximo.service.MailService;
 import com.syncadmaximo.service.MaximoRepository;
 import com.syncadmaximo.service.SyncService;
@@ -15,6 +19,7 @@ import com.syncadmaximo.service.ValidationService;
 import com.syncadmaximo.util.StringSanitizer;
 
 import java.time.Instant;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -42,7 +47,10 @@ public class SyncOrchestrator implements SyncService {
     private final MaximoRepository maximoRepository;
     private final ValidationService validationService;
     private final AuditRepository auditRepository;
-    private final MailService mailService;
+    private final CreationService creationService;
+    private final EmailSyncService emailSyncService;
+    private final InactivationService inactivationService;
+    private final DailyReportEmailService dailyReportEmailService;
 
     public SyncOrchestrator() {
         this(AppConfig.getInstance(), null, null, null, null, null);
@@ -59,7 +67,14 @@ public class SyncOrchestrator implements SyncService {
         this.maximoRepository = maximoRepository == null ? new NoOpMaximoRepository() : maximoRepository;
         this.validationService = validationService == null ? new DefaultValidationService() : validationService;
         this.auditRepository = auditRepository == null ? new NoOpAuditRepository() : auditRepository;
-        this.mailService = mailService == null ? new NoOpMailService() : mailService;
+        this.creationService = new CreationService();
+        this.emailSyncService = maximoRepository instanceof com.syncadmaximo.repository.MaximoRepository
+                ? new EmailSyncService((com.syncadmaximo.repository.MaximoRepository) this.maximoRepository)
+                : new EmailSyncService(null);
+        this.inactivationService = new InactivationService(maximoRepository instanceof com.syncadmaximo.repository.MaximoRepository
+                ? (com.syncadmaximo.repository.MaximoRepository) this.maximoRepository
+                : null);
+        this.dailyReportEmailService = new DailyReportEmailService(mailService);
     }
 
     @Override
@@ -138,7 +153,7 @@ public class SyncOrchestrator implements SyncService {
             LOGGER.log(Level.FINE, "No se pudo registrar el fin de la ejecucion", ex);
         }
 
-        sendSummaryMail(execution, plan, result);
+        dailyReportEmailService.sendExecutionSummary(execution, plan, result);
     }
 
     private Map<String, AdUser> loadDirectoryUsers(SynchronizationPlan plan, SyncResult result) {
@@ -257,7 +272,45 @@ public class SyncOrchestrator implements SyncService {
             plan.setValidatedAccepted(plan.getValidatedAccepted() + 1);
         }
 
-        MaximoPerson existing = findMatchingPerson(snapshot, maximoPeople, plan, result);
+        if (!snapshot.isEnabled()) {
+            MaximoPerson existing = findMatchingPerson(snapshot, maximoPeople, plan, result).getPerson();
+            if (existing == null) {
+                plan.incrementSkipped();
+                SyncIssue issue = new SyncIssue();
+                issue.setCode("INACTIVATION_SKIPPED");
+                issue.setDescription("No se encontró una persona activa para inactivar.");
+                issue.setReferenceId(snapshot.getUserKey());
+                appendIssue(result, plan, issue);
+                return;
+            }
+
+            try {
+                InactivationService.Outcome outcome = inactivationService.inactivateIfNeeded(existing, adUser);
+                if (outcome == InactivationService.Outcome.UPDATED) {
+                    plan.incrementInactivated();
+                    maximoPeople.put(normalizeUserKey(existing.getPersonId()), existing);
+                } else {
+                    plan.incrementUnchanged();
+                }
+            } catch (RuntimeException ex) {
+                plan.incrementFailed();
+                appendIssue(result, plan, toIssue("INACTIVATION_ERROR", ex.getMessage(), existing.getPersonId(), ex));
+                LOGGER.log(Level.WARNING, "No se pudo inactivar la persona " + existing.getPersonId(), ex);
+            }
+            return;
+        }
+
+        MatchResult match = findMatchingPerson(snapshot, maximoPeople, plan, result);
+        if (match.getType() == MatchType.CEDULA
+                && match.getPerson() != null
+                && !Objects.equals(normalizeUserKey(match.getPerson().getPersonId()), snapshot.getUserKey())) {
+            if (!migratePersonId(match, snapshot, maximoPeople, plan, result)) {
+                plan.incrementSkipped();
+                return;
+            }
+        }
+
+        MaximoPerson existing = match.getPerson();
         MaximoPerson candidate = buildCandidate(existing, adUser, snapshot);
         if (candidate == null) {
             plan.incrementSkipped();
@@ -301,6 +354,7 @@ public class SyncOrchestrator implements SyncService {
             } else {
                 plan.incrementUpdated();
             }
+            syncEmail(candidate, snapshot, plan, result);
         } catch (RuntimeException ex) {
             plan.incrementFailed();
             appendIssue(result, plan, toIssue("PERSISTENCE_ERROR", ex.getMessage(), candidate.getPersonId(), ex));
@@ -320,25 +374,29 @@ public class SyncOrchestrator implements SyncService {
         return snapshot;
     }
 
-    private MaximoPerson findMatchingPerson(ValidationSnapshot snapshot,
-                                            Map<String, MaximoPerson> maximoPeople,
-                                            SynchronizationPlan plan,
-                                            SyncResult result) {
+    private MatchResult findMatchingPerson(ValidationSnapshot snapshot,
+                                           Map<String, MaximoPerson> maximoPeople,
+                                           SynchronizationPlan plan,
+                                           SyncResult result) {
         MaximoPerson byUser = maximoPeople.get(snapshot.getUserKey());
         MaximoPerson byCedula = findByCedula(maximoPeople.values(), snapshot.getCedula());
         MaximoPerson byEmail = findByEmail(maximoPeople.values(), snapshot.getEmail());
 
         MaximoPerson resolved = byUser;
+        MatchType type = MatchType.NONE;
         if (resolved != null) {
             plan.incrementMatchedByUser();
+            type = MatchType.USER;
         }
         if (resolved == null && byCedula != null) {
             resolved = byCedula;
             plan.incrementMatchedByCedula();
+            type = MatchType.CEDULA;
         }
         if (resolved == null && byEmail != null) {
             resolved = byEmail;
             plan.incrementMatchedByEmail();
+            type = MatchType.EMAIL;
         }
 
         if (resolved != null) {
@@ -365,18 +423,65 @@ public class SyncOrchestrator implements SyncService {
             }
         }
 
-        return resolved;
+        return new MatchResult(resolved, type);
+    }
+
+    private boolean migratePersonId(MatchResult match,
+                                    ValidationSnapshot snapshot,
+                                    Map<String, MaximoPerson> maximoPeople,
+                                    SynchronizationPlan plan,
+                                    SyncResult result) {
+        MaximoPerson existing = match.getPerson();
+        if (existing == null || snapshot.getCedula() == null || snapshot.getUserKey() == null) {
+            return true;
+        }
+        String currentPersonId = normalizeUserKey(existing.getPersonId());
+        String newPersonId = snapshot.getUserKey();
+        if (Objects.equals(currentPersonId, newPersonId)) {
+            return true;
+        }
+
+        try {
+            int affected = maximoRepository.updatePersonIdByCedula(snapshot.getCedula(), currentPersonId, newPersonId);
+            if (affected <= 0) {
+                SyncIssue issue = new SyncIssue();
+                issue.setCode("MIGRATION_NOT_APPLIED");
+                issue.setDescription("No se pudo migrar el usuario por cédula.");
+                issue.setReferenceId(newPersonId);
+                appendIssue(result, plan, issue);
+                return false;
+            }
+            MaximoPerson migrated = copy(existing);
+            migrated.setPersonId(newPersonId);
+            maximoPeople.remove(currentPersonId);
+            maximoPeople.put(newPersonId, migrated);
+            match.setPerson(migrated);
+            return true;
+        } catch (SQLException ex) {
+            plan.incrementFailed();
+            appendIssue(result, plan, toIssue("MIGRATION_ERROR", ex.getMessage(), newPersonId, ex));
+            LOGGER.log(Level.WARNING, "No se pudo migrar el personId para " + newPersonId, ex);
+            return false;
+        }
     }
 
     private MaximoPerson buildCandidate(MaximoPerson existing, AdUser adUser, ValidationSnapshot snapshot) {
-        MaximoPerson candidate = existing == null ? new MaximoPerson() : copy(existing);
-        candidate.setPersonId(existing != null ? existing.getPersonId() : snapshot.getUserKey());
-        candidate.setStatus(adUser.isEnabled() ? "ACTIVO" : "INACTIVO");
-        candidate.setFirstName(normalizeValue(adUser.getGivenName(), candidate.getFirstName()));
-        candidate.setLastName(normalizeValue(adUser.getSn(), candidate.getLastName()));
-        candidate.setEppCedula(snapshot.getCedula() == null ? candidate.getEppCedula() : snapshot.getCedula());
-        candidate.setEmailAddress(snapshot.getEmail() == null || snapshot.getEmail().isEmpty() ? candidate.getEmailAddress() : snapshot.getEmail());
-        return candidate;
+        return creationService.buildCandidate(existing, adUser, snapshot.getUserKey(), snapshot.getCedula(), snapshot.getEmail());
+    }
+
+    private void syncEmail(MaximoPerson candidate, ValidationSnapshot snapshot, SynchronizationPlan plan, SyncResult result) {
+        try {
+            EmailSyncService.Outcome outcome = emailSyncService.syncPrimaryEmail(candidate.getPersonId(), snapshot.getEmail());
+            if (outcome == EmailSyncService.Outcome.UPDATED) {
+                plan.incrementEmailUpdated();
+            } else if (outcome == EmailSyncService.Outcome.INSERTED) {
+                plan.incrementEmailInserted();
+            }
+        } catch (SQLException ex) {
+            plan.incrementFailed();
+            appendIssue(result, plan, toIssue("EMAIL_SYNC_ERROR", ex.getMessage(), candidate.getPersonId(), ex));
+            LOGGER.log(Level.WARNING, "No se pudo sincronizar el correo para " + candidate.getPersonId(), ex);
+        }
     }
 
     private MaximoPerson copy(MaximoPerson source) {
@@ -479,34 +584,6 @@ public class SyncOrchestrator implements SyncService {
         return builder.toString();
     }
 
-    private void sendSummaryMail(SyncExecution execution, SynchronizationPlan plan, SyncResult result) {
-        try {
-            String body = buildMailBody(execution, plan, result);
-            mailService.sendExecutionSummary(execution, body);
-        } catch (RuntimeException ex) {
-            LOGGER.log(Level.FINE, "No se pudo enviar el resumen por correo", ex);
-        }
-    }
-
-    private String buildMailBody(SyncExecution execution, SynchronizationPlan plan, SyncResult result) {
-        StringBuilder body = new StringBuilder();
-        body.append("RunId: ").append(execution.getRunId()).append('\n');
-        body.append("Modo: ").append(execution.isDryRun() ? "DRY_RUN" : "PRODUCTION").append('\n');
-        body.append("Proceso: ").append(execution.getProcessName()).append('\n');
-        body.append("Inicio: ").append(execution.getStartedAt()).append('\n');
-        body.append("Fin: ").append(execution.getFinishedAt()).append('\n');
-        body.append('\n').append(plan.buildSummary()).append('\n');
-        if (result != null && !result.getIssues().isEmpty()) {
-            body.append('\n').append("Issues:\n");
-            for (SyncIssue issue : result.getIssues()) {
-                body.append("- ").append(issue.getCode()).append(" | ")
-                        .append(issue.getReferenceId()).append(" | ")
-                        .append(issue.getDescription()).append('\n');
-            }
-        }
-        return body.toString();
-    }
-
     private String normalizeUserKey(String value) {
         return StringSanitizer.normalizeUserName(value);
     }
@@ -589,6 +666,10 @@ public class SyncOrchestrator implements SyncService {
             this.enabled = enabled;
         }
 
+        public boolean isEnabled() {
+            return enabled;
+        }
+
         public boolean isUserValid() {
             return userValid;
         }
@@ -602,6 +683,35 @@ public class SyncOrchestrator implements SyncService {
             builder.append("Usuario invalido o no procesable: ").append(user == null ? "null" : user.toString());
             return builder.toString();
         }
+    }
+
+    private static final class MatchResult {
+        private MaximoPerson person;
+        private final MatchType type;
+
+        private MatchResult(MaximoPerson person, MatchType type) {
+            this.person = person;
+            this.type = type == null ? MatchType.NONE : type;
+        }
+
+        public MaximoPerson getPerson() {
+            return person;
+        }
+
+        public void setPerson(MaximoPerson person) {
+            this.person = person;
+        }
+
+        public MatchType getType() {
+            return type;
+        }
+    }
+
+    private enum MatchType {
+        NONE,
+        USER,
+        CEDULA,
+        EMAIL
     }
 
     private static final class NoOpDirectoryService implements DirectoryService {
@@ -636,6 +746,15 @@ public class SyncOrchestrator implements SyncService {
         public void saveOrUpdate(MaximoPerson person) {
             // no-op
         }
+
+        @Override
+        public int updatePersonIdByCedula(String cedula, String currentPersonId, String newPersonId) {
+            return 0;
+        }
+
+        public void insertConfiguredPrimaryEmail(String personId, String emailAddress) {
+            // no-op
+        }
     }
 
     private static final class NoOpAuditRepository implements AuditRepository {
@@ -660,10 +779,4 @@ public class SyncOrchestrator implements SyncService {
         }
     }
 
-    private static final class NoOpMailService implements MailService {
-        @Override
-        public void sendExecutionSummary(SyncExecution execution, String body) {
-            // no-op
-        }
-    }
 }

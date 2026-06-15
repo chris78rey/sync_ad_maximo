@@ -21,6 +21,8 @@ public interface MaximoRepository extends com.syncadmaximo.service.MaximoReposit
 
     int insertPrimaryEmail(long emailId, long rowstamp, String personId, String emailAddress, String type, boolean primary) throws SQLException;
 
+    void insertConfiguredPrimaryEmail(String personId, String emailAddress) throws SQLException;
+
     long nextSequenceValue(String sequenceName) throws SQLException;
 
     void callStoredProcedure(String procedureName, List<?> parameters) throws SQLException;

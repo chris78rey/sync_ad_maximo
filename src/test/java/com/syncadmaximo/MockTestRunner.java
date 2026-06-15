@@ -1,6 +1,8 @@
 package com.syncadmaximo;
 
 import com.syncadmaximo.orchestration.SyncOrchestratorMockTest;
+import com.syncadmaximo.service.InactivationServiceTest;
+import com.syncadmaximo.service.ReportServiceTest;
 import com.syncadmaximo.web.demo.DemoDataFactoryMockTest;
 import com.syncadmaximo.validation.SyncValidatorMockTest;
 
@@ -12,6 +14,8 @@ public final class MockTestRunner {
     public static void main(String[] args) {
         int failures = 0;
         failures += run("DemoDataFactoryMockTest", DemoDataFactoryMockTest::runAll);
+        failures += run("InactivationServiceTest", InactivationServiceTest::runAll);
+        failures += run("ReportServiceTest", ReportServiceTest::runAll);
         failures += run("SyncValidatorMockTest", SyncValidatorMockTest::runAll);
         failures += run("SyncOrchestratorMockTest", SyncOrchestratorMockTest::runAll);
         if (failures > 0) {

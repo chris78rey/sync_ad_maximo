@@ -26,6 +26,7 @@ public final class SyncOrchestratorMockTest {
     public static void runAll() {
         dryRunDoesNotPersistButAuditsAndSendsMail();
         productionPersistsAChangedCandidate();
+        productionMigratesPersonIdWhenCedulaMatches();
     }
 
     static void dryRunDoesNotPersistButAuditsAndSendsMail() {
@@ -103,6 +104,43 @@ public final class SyncOrchestratorMockTest {
         TestAssertions.contains(mailService.sentBodies.get(0), "Modo: PRODUCTION", "El correo debe indicar producción");
     }
 
+    static void productionMigratesPersonIdWhenCedulaMatches() {
+        RecordingMaximoRepository maximoRepository = new RecordingMaximoRepository();
+        maximoRepository.peopleByStatus = Collections.singletonList(existingMigratablePerson());
+        RecordingAuditRepository auditRepository = new RecordingAuditRepository();
+        RecordingMailService mailService = new RecordingMailService();
+        SyncOrchestrator orchestrator = new SyncOrchestrator(
+                appConfig(mode("PRODUCTION")),
+                new SingleUserDirectoryService(migratedUser()),
+                maximoRepository,
+                new FixedValidationService(),
+                auditRepository,
+                mailService
+        );
+
+        SyncExecution execution = new SyncExecution();
+        execution.setRunId("run-migrate-1");
+        execution.setStartedAt(Instant.parse("2026-01-01T12:00:00Z"));
+        execution.setInitiatedBy("tester");
+
+        SyncResult result = orchestrator.execute(execution);
+
+        TestAssertions.isTrue(result.isSuccess(), "La migración debe terminar con éxito");
+        TestAssertions.contains(result.getMessage(), "matchCedula=1", "Debe contar un match por cédula");
+        TestAssertions.contains(result.getMessage(), "actualizados=1", "Debe registrar una actualización");
+        TestAssertions.equals(1, maximoRepository.updatePersonIdCalls, "Debe migrar el personId una vez");
+        TestAssertions.equals("oldlogin", maximoRepository.lastCurrentPersonId, "Debe migrar desde el login anterior");
+        TestAssertions.equals("newlogin", maximoRepository.lastNewPersonId, "Debe migrar hacia el nuevo login");
+        TestAssertions.equals(1, maximoRepository.saveCalls, "Debe persistir el candidato migrado");
+        TestAssertions.notNull(maximoRepository.lastSaved, "Debe guardar el candidato migrado");
+        TestAssertions.equals("newlogin", maximoRepository.lastSaved.getPersonId(), "El candidato debe usar el nuevo login");
+        TestAssertions.equals("0123456789", maximoRepository.lastSaved.getEppCedula(), "Debe conservar la cédula");
+        TestAssertions.equals(1, auditRepository.startCalls, "Debe auditar el inicio");
+        TestAssertions.equals(1, auditRepository.endCalls, "Debe auditar el fin");
+        TestAssertions.equals(1, mailService.sentBodies.size(), "Debe enviar un correo resumen");
+        TestAssertions.contains(mailService.sentBodies.get(0), "RunId: run-migrate-1", "El correo debe incluir el runId");
+    }
+
     private static AdUser sampleUser() {
         AdUser user = new AdUser();
         user.setsAMAccountName("jdoe");
@@ -112,6 +150,28 @@ public final class SyncOrchestratorMockTest {
         user.setMail("JDOE@EXAMPLE.COM");
         user.setEnabled(true);
         return user;
+    }
+
+    private static AdUser migratedUser() {
+        AdUser user = new AdUser();
+        user.setsAMAccountName("newlogin");
+        user.setGivenName("John");
+        user.setSn("Doe");
+        user.setPostalCode("0123456789");
+        user.setMail("newlogin@example.com");
+        user.setEnabled(true);
+        return user;
+    }
+
+    private static MaximoPerson existingMigratablePerson() {
+        MaximoPerson person = new MaximoPerson();
+        person.setPersonId("oldlogin");
+        person.setStatus("ACTIVO");
+        person.setFirstName("John");
+        person.setLastName("Doe");
+        person.setEppCedula("0123456789");
+        person.setEmailAddress("oldlogin@example.com");
+        return person;
     }
 
     private static Properties mode(String value) {
@@ -184,13 +244,17 @@ public final class SyncOrchestratorMockTest {
 
     private static final class RecordingMaximoRepository implements MaximoRepository {
         private int saveCalls;
+        private int updatePersonIdCalls;
         private MaximoPerson lastSaved;
         private final List<String> requestedStatuses = new ArrayList<>();
+        private List<MaximoPerson> peopleByStatus = Collections.emptyList();
+        private String lastCurrentPersonId;
+        private String lastNewPersonId;
 
         @Override
         public List<MaximoPerson> findPeopleByStatus(String status) {
             requestedStatuses.add(status);
-            return Collections.emptyList();
+            return peopleByStatus;
         }
 
         @Override
@@ -202,6 +266,18 @@ public final class SyncOrchestratorMockTest {
         public void saveOrUpdate(MaximoPerson person) {
             saveCalls++;
             lastSaved = person;
+        }
+
+        public void insertConfiguredPrimaryEmail(String personId, String emailAddress) {
+            // no-op for tests
+        }
+
+        @Override
+        public int updatePersonIdByCedula(String cedula, String currentPersonId, String newPersonId) {
+            updatePersonIdCalls++;
+            lastCurrentPersonId = currentPersonId;
+            lastNewPersonId = newPersonId;
+            return 1;
         }
     }
 
