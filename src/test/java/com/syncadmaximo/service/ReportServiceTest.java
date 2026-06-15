@@ -24,6 +24,7 @@ public final class ReportServiceTest {
         service.writeHtml(html, model, "/sync");
         TestAssertions.contains(html.toString(), "Reporte de", "Debe renderizar HTML");
         TestAssertions.contains(html.toString(), "/sync/report.csv", "Debe incluir el enlace CSV");
+        TestAssertions.contains(html.toString(), "/sync/api/reportes/historial", "Debe incluir el enlace al historial");
         TestAssertions.contains(html.toString(), "/sync/mail/preview", "Debe incluir la vista de correo");
 
         StringWriter csv = new StringWriter();

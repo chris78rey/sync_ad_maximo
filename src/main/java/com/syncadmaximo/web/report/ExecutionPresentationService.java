@@ -36,6 +36,8 @@ public final class ExecutionPresentationService {
         writer.write("<div class=\"nav\"><a href=\"");
         writer.write(escapeHtml(safeContextPath + "/report.csv"));
         writer.write("\">Descargar CSV</a><a href=\"");
+        writer.write(escapeHtml(safeContextPath + "/api/reportes/historial"));
+        writer.write("\">Historial</a><a href=\"");
         writer.write(escapeHtml(safeContextPath + "/mail/preview"));
         writer.write("\">Vista para correo</a><a href=\"");
         writer.write(escapeHtml(safeContextPath + "/logout"));
