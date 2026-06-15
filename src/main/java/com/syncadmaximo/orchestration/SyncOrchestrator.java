@@ -9,6 +9,7 @@ import com.syncadmaximo.model.SyncResult;
 import com.syncadmaximo.service.AuditRepository;
 import com.syncadmaximo.service.CreationService;
 import com.syncadmaximo.service.DailyReportEmailService;
+import com.syncadmaximo.service.IdentityMatchingService;
 import com.syncadmaximo.service.DirectoryService;
 import com.syncadmaximo.service.DefaultValidationService;
 import com.syncadmaximo.service.EmailSyncService;
@@ -52,6 +53,7 @@ public class SyncOrchestrator implements SyncService {
     private final EmailSyncService emailSyncService;
     private final InactivationService inactivationService;
     private final DailyReportEmailService dailyReportEmailService;
+    private final IdentityMatchingService identityMatchingService;
 
     public SyncOrchestrator() {
         this(AppConfig.getInstance(), null, null, null, null, null);
@@ -76,6 +78,7 @@ public class SyncOrchestrator implements SyncService {
                 ? (com.syncadmaximo.repository.MaximoRepository) this.maximoRepository
                 : null);
         this.dailyReportEmailService = new DailyReportEmailService(mailService);
+        this.identityMatchingService = new IdentityMatchingService(this.maximoRepository, this.auditRepository);
     }
 
     @Override
@@ -274,7 +277,13 @@ public class SyncOrchestrator implements SyncService {
         }
 
         if (!snapshot.isEnabled()) {
-            MaximoPerson existing = findMatchingPerson(snapshot, maximoPeople, plan, result).getPerson();
+            MaximoPerson existing = identityMatchingService.resolve(
+                    snapshot.getUserKey(),
+                    snapshot.getCedula(),
+                    snapshot.getEmail(),
+                    maximoPeople.values(),
+                    plan,
+                    result).getPerson();
             if (existing == null) {
                 plan.incrementSkipped();
                 SyncIssue issue = new SyncIssue();
@@ -301,11 +310,17 @@ public class SyncOrchestrator implements SyncService {
             return;
         }
 
-        MatchResult match = findMatchingPerson(snapshot, maximoPeople, plan, result);
-        if (match.getType() == MatchType.CEDULA
+        IdentityMatchingService.MatchResult match = identityMatchingService.resolve(
+                snapshot.getUserKey(),
+                snapshot.getCedula(),
+                snapshot.getEmail(),
+                maximoPeople.values(),
+                plan,
+                result);
+        if (match.getType() == IdentityMatchingService.MatchType.CEDULA
                 && match.getPerson() != null
                 && !Objects.equals(normalizeUserKey(match.getPerson().getPersonId()), snapshot.getUserKey())) {
-            if (!migratePersonId(match, snapshot, maximoPeople, plan, result)) {
+            if (!identityMatchingService.migrateByCedula(match, snapshot.getCedula(), snapshot.getUserKey(), maximoPeople, plan, result)) {
                 plan.incrementSkipped();
                 return;
             }
