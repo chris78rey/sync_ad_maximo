@@ -17,6 +17,7 @@ import com.syncadmaximo.service.InactivationService;
 import com.syncadmaximo.service.MailService;
 import com.syncadmaximo.service.MaximoRepository;
 import com.syncadmaximo.service.SyncService;
+import com.syncadmaximo.service.SyncDataLoadService;
 import com.syncadmaximo.service.ValidationService;
 import com.syncadmaximo.util.StringSanitizer;
 
@@ -54,6 +55,7 @@ public class SyncOrchestrator implements SyncService {
     private final InactivationService inactivationService;
     private final DailyReportEmailService dailyReportEmailService;
     private final IdentityMatchingService identityMatchingService;
+    private final SyncDataLoadService syncDataLoadService;
 
     public SyncOrchestrator() {
         this(AppConfig.getInstance(), null, null, null, null, null);
@@ -79,6 +81,7 @@ public class SyncOrchestrator implements SyncService {
                 : null);
         this.dailyReportEmailService = new DailyReportEmailService(mailService);
         this.identityMatchingService = new IdentityMatchingService(this.maximoRepository, this.auditRepository);
+        this.syncDataLoadService = new SyncDataLoadService(this.directoryService, this.maximoRepository, this.config, this.auditRepository);
     }
 
     @Override
@@ -93,8 +96,9 @@ public class SyncOrchestrator implements SyncService {
         try {
             auditStart(effectiveExecution);
 
-            Map<String, AdUser> adUsers = loadDirectoryUsers(plan, result);
-            Map<String, MaximoPerson> maximoPeople = loadMaximoPeople(plan);
+            SyncDataLoadService.LoadedData loadedData = syncDataLoadService.load(plan, result);
+            Map<String, AdUser> adUsers = loadedData.getAdUsers();
+            Map<String, MaximoPerson> maximoPeople = loadedData.getMaximoPeople();
 
             for (AdUser adUser : adUsers.values()) {
                 processUser(effectiveExecution, adUser, maximoPeople, plan, result);

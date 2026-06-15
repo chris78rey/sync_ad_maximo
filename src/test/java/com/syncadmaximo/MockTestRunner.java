@@ -5,6 +5,7 @@ import com.syncadmaximo.service.DefaultValidationServiceSpec;
 import com.syncadmaximo.service.IdentityMatchingServiceSpec;
 import com.syncadmaximo.service.InactivationServiceTest;
 import com.syncadmaximo.service.ReportServiceTest;
+import com.syncadmaximo.service.SyncDataLoadServiceSpec;
 import com.syncadmaximo.web.demo.DemoDataFactoryMockTest;
 import com.syncadmaximo.validation.SyncValidatorMockTest;
 
@@ -20,6 +21,7 @@ public final class MockTestRunner {
         failures += run("IdentityMatchingServiceSpec", IdentityMatchingServiceSpec::runAll);
         failures += run("InactivationServiceTest", InactivationServiceTest::runAll);
         failures += run("ReportServiceTest", ReportServiceTest::runAll);
+        failures += run("SyncDataLoadServiceSpec", SyncDataLoadServiceSpec::runAll);
         failures += run("SyncValidatorMockTest", SyncValidatorMockTest::runAll);
         failures += run("SyncOrchestratorMockTest", SyncOrchestratorMockTest::runAll);
         if (failures > 0) {
