@@ -1,15 +1,13 @@
-package com.syncadmaximo.orchestration;
+package com.syncadmaximo.service;
 
 import com.syncadmaximo.model.AdUser;
 import com.syncadmaximo.model.MaximoPerson;
-import com.syncadmaximo.service.ValidationService;
 import com.syncadmaximo.util.StringSanitizer;
 
 import java.util.Optional;
 
 /**
- * Implementación mínima y nula-segura de ValidationService para la capa de orquestación.
- * Mantiene la lógica de validación básica sin depender de frameworks externos.
+ * Implementación mínima y nula-segura de ValidationService para la capa de servicios.
  */
 public final class DefaultValidationService implements ValidationService {
 

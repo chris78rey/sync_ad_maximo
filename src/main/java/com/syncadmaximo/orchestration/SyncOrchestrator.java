@@ -10,6 +10,7 @@ import com.syncadmaximo.service.AuditRepository;
 import com.syncadmaximo.service.CreationService;
 import com.syncadmaximo.service.DailyReportEmailService;
 import com.syncadmaximo.service.DirectoryService;
+import com.syncadmaximo.service.DefaultValidationService;
 import com.syncadmaximo.service.EmailSyncService;
 import com.syncadmaximo.service.InactivationService;
 import com.syncadmaximo.service.MailService;
