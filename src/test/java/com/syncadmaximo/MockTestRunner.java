@@ -7,6 +7,7 @@ import com.syncadmaximo.service.InactivationServiceTest;
 import com.syncadmaximo.service.ReportServiceTest;
 import com.syncadmaximo.service.RunHistoryServiceSpec;
 import com.syncadmaximo.service.SyncDataLoadServiceSpec;
+import com.syncadmaximo.scheduler.SyncSchedulerSpec;
 import com.syncadmaximo.web.demo.DemoDataFactoryMockTest;
 import com.syncadmaximo.web.servlet.ReportControllerHistorySpec;
 import com.syncadmaximo.validation.SyncValidatorMockTest;
@@ -26,6 +27,7 @@ public final class MockTestRunner {
         failures += run("RunHistoryServiceSpec", RunHistoryServiceSpec::runAll);
         failures += run("SyncDataLoadServiceSpec", SyncDataLoadServiceSpec::runAll);
         failures += run("SyncValidatorMockTest", SyncValidatorMockTest::runAll);
+        failures += run("SyncSchedulerSpec", SyncSchedulerSpec::runAll);
         failures += run("ReportControllerHistorySpec", ReportControllerHistorySpec::runAll);
         failures += run("SyncOrchestratorMockTest", SyncOrchestratorMockTest::runAll);
         if (failures > 0) {

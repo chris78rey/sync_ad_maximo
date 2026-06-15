@@ -9,6 +9,9 @@ import com.syncadmaximo.service.SyncService;
 import com.syncadmaximo.util.StringSanitizer;
 
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -47,17 +50,24 @@ public final class SyncScheduler implements AutoCloseable {
     }
 
     public void startPeriodic() {
+        String schedulerTime = StringSanitizer.trimToNull(config.getSchedulerTime());
+        if (schedulerTime != null) {
+            long initialDelaySeconds = computeInitialDelaySeconds(schedulerTime, config.getZoneId(), Instant.now());
+            executor.scheduleAtFixedRate(new Runnable() {
+                @Override
+                public void run() {
+                    runScheduledExecution();
+                }
+            }, initialDelaySeconds, TimeUnit.DAYS.toSeconds(1), TimeUnit.SECONDS);
+            return;
+        }
+
         long initialDelaySeconds = Math.max(0, config.getInt("sync.scheduler.initialDelaySeconds", 0));
         long fixedDelaySeconds = Math.max(1, config.getInt("sync.scheduler.fixedDelaySeconds", 3600));
         executor.scheduleWithFixedDelay(new Runnable() {
             @Override
             public void run() {
-                try {
-                    SyncResult result = runOnce();
-                    LOGGER.info(result == null ? "Sin resultado de ejecucion" : result.getMessage());
-                } catch (RuntimeException ex) {
-                    LOGGER.log(Level.SEVERE, "Fallo una ejecucion programada", ex);
-                }
+                runScheduledExecution();
             }
         }, initialDelaySeconds, fixedDelaySeconds, TimeUnit.SECONDS);
     }
@@ -101,6 +111,43 @@ public final class SyncScheduler implements AutoCloseable {
         execution.setInitiatedBy("scheduler");
         execution.setDryRun(ExecutionMode.fromConfig(config).isDryRun());
         return execution;
+    }
+
+    void runScheduledExecution() {
+        try {
+            SyncResult result = runOnce();
+            LOGGER.info(result == null ? "Sin resultado de ejecucion" : result.getMessage());
+        } catch (RuntimeException ex) {
+            LOGGER.log(Level.SEVERE, "Fallo una ejecucion programada", ex);
+        }
+    }
+
+    static long computeInitialDelaySeconds(String schedulerTime, ZoneId zoneId, Instant now) {
+        if (schedulerTime == null || schedulerTime.trim().isEmpty()) {
+            return 0L;
+        }
+        ZoneId effectiveZone = zoneId == null ? ZoneId.of("UTC") : zoneId;
+        LocalTime targetTime = parseSchedulerTime(schedulerTime.trim());
+        if (targetTime == null) {
+            return 0L;
+        }
+        ZonedDateTime current = now == null ? ZonedDateTime.now(effectiveZone) : now.atZone(effectiveZone);
+        ZonedDateTime next = current.withHour(targetTime.getHour())
+                .withMinute(targetTime.getMinute())
+                .withSecond(targetTime.getSecond())
+                .withNano(0);
+        if (!next.isAfter(current)) {
+            next = next.plusDays(1);
+        }
+        return Math.max(0L, next.toEpochSecond() - current.toEpochSecond());
+    }
+
+    private static LocalTime parseSchedulerTime(String schedulerTime) {
+        try {
+            return LocalTime.parse(schedulerTime);
+        } catch (RuntimeException ex) {
+            return null;
+        }
     }
 
     private static boolean shouldSchedule(String[] args, AppConfig config) {
